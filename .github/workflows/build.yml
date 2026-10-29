@@ -1,0 +1,37 @@
+name: build-kext
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build kext (x86_64, legacy IOKit)
+        run: |
+          set -eux
+          SDK=$(xcrun --sdk macosx --show-sdk-path)
+          K="$SDK/System/Library/Frameworks/Kernel.framework"
+          APP=build/rtw88.kext/Contents
+          mkdir -p "$APP/MacOS"
+          clang++ -arch x86_64 -mmacosx-version-min=12.0 -isysroot "$SDK" \
+            -std=gnu++17 -fno-rtti -fno-exceptions -fno-builtin -fno-common \
+            -fno-stack-protector -mkernel -fapple-kext -nostdlib \
+            -DKERNEL -DKERNEL_PRIVATE -DDRIVER_PRIVATE -DAPPLE -DNeXT \
+            -I"$K/Headers" -I"$K/PrivateHeaders" -Ikext \
+            -Xlinker -kext -lkmodc++ -lkmod -lcc_kext \
+            -o "$APP/MacOS/rtw88" kext/RTW88.cpp
+          cp kext/Info.plist "$APP/Info.plist"
+          codesign --force -s - build/rtw88.kext || true
+          file "$APP/MacOS/rtw88"
+          (cd build && zip -r rtw88.kext.zip rtw88.kext)
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: rtw88.kext
+          path: build/rtw88.kext.zip
